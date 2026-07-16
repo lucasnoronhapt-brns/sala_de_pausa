@@ -1,0 +1,191 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+  font-family: "Segoe UI", Roboto, system-ui, sans-serif;
+  cursor: none;
+}
+
+/* ── Rotação (TV montada na vertical) ────────────────────── */
+.rotate-wrapper {
+  position: fixed;
+  background: #000;
+  overflow: hidden;
+}
+.rotate-wrapper.rot-90 {
+  top: 50%; left: 50%;
+  width: 100vh; height: 100vw;
+  transform: translate(-50%, -50%) rotate(90deg);
+}
+.rotate-wrapper.rot-270 {
+  top: 50%; left: 50%;
+  width: 100vh; height: 100vw;
+  transform: translate(-50%, -50%) rotate(-90deg);
+}
+.rotate-wrapper.rot-0 {
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+}
+
+/* ── Slides ──────────────────────────────────────────────── */
+.slide {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+  color: #fff;
+  overflow: hidden;
+}
+.slide.active { opacity: 1; }
+
+/* Template: só texto — centrado, grande */
+.slide.tpl-text {
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 7%;
+}
+
+/* Template: só imagem — ocupa tudo, sem cortar nem distorcer */
+.slide.tpl-image {
+  justify-content: center;
+  align-items: center;
+  background: #000;
+}
+.slide.tpl-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Template: vídeo — ocupa tudo, sem cortar nem distorcer */
+.slide.tpl-video {
+  justify-content: center;
+  align-items: center;
+  background: #000;
+}
+.slide.tpl-video video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Template: página web (iframe) — ex.: ranking do jogo */
+.slide.tpl-webpage iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #fff;
+  pointer-events: none;
+}
+
+/* Template: imagem + texto — imagem em cima (~62%), texto embaixo */
+.slide.tpl-image_text .img-area {
+  flex: 0 0 62%;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background: #000;
+}
+.slide.tpl-image_text .img-area img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.slide.tpl-image_text .text-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  padding: 3% 6%;
+  min-height: 0;
+}
+
+/* ── Tipografia com auto-ajuste por tamanho do texto ─────── */
+.slide h1 {
+  margin: 0 0 0.4em;
+  font-weight: 700;
+  line-height: 1.15;
+  font-size: 5vmax;
+}
+.slide h1.long  { font-size: 3.8vmax; }
+.slide p {
+  margin: 0;
+  line-height: 1.5;
+  opacity: 0.95;
+  font-size: 2.7vmax;
+  white-space: pre-line;
+}
+.slide p.long   { font-size: 2.1vmax; }
+.slide p.xlong  { font-size: 1.7vmax; }
+
+.slide .kicker {
+  font-size: 1.9vmax;
+  text-transform: uppercase;
+  letter-spacing: 0.35em;
+  opacity: 0.8;
+  margin-bottom: 1em;
+}
+
+/* Texto sobre fundo colorido no template imagem+texto fica mais compacto */
+.slide.tpl-image_text h1 { font-size: 3.6vmax; }
+.slide.tpl-image_text h1.long { font-size: 2.8vmax; }
+.slide.tpl-image_text p { font-size: 2.2vmax; }
+.slide.tpl-image_text p.long { font-size: 1.8vmax; }
+.slide.tpl-image_text p.xlong { font-size: 1.5vmax; }
+
+/* ── Fallback (sem playlist) ─────────────────────────────── */
+.fallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  color: #fff;
+  background: linear-gradient(160deg, #232526, #414345);
+  padding: 8%;
+}
+.fallback h1 { font-size: 4vmax; margin: 0 0 0.5em; }
+.fallback p  { font-size: 2vmax; opacity: 0.7; margin: 0; }
+
+/* ── Overlay: relógio, progresso, debug ──────────────────── */
+.clock {
+  position: absolute;
+  top: 2%; right: 4%;
+  font-size: 2vmax;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, 0.9);
+  z-index: 10;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+}
+.progress {
+  position: absolute;
+  bottom: 0; left: 0;
+  height: 0.5vmax;
+  width: 0%;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 10;
+}
+.progress.animating { transition: width linear; }
+
+.debug {
+  position: absolute;
+  bottom: 2%; left: 3%;
+  font-size: 1.4vmax;
+  font-family: Consolas, monospace;
+  color: #0f0;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 0.4em 0.8em;
+  border-radius: 6px;
+  z-index: 10;
+}
