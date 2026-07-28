@@ -6,6 +6,50 @@ import "./tv.css";
 
 const POLL_INTERVAL_MS = 45_000;
 
+function TikTokSlide({ item, active, cls, onEnded }) {
+  const firedRef = useRef(false);
+
+  // O iframe só é montado enquanto o slide está ativo: cada entrada
+  // recria o src e o autoplay dispara de novo.
+  useEffect(() => {
+    firedRef.current = false;
+    if (!active) return;
+
+    const advanceOnce = () => {
+      if (firedRef.current) return;
+      firedRef.current = true;
+      onEnded();
+    };
+
+    const handler = (event) => {
+      const data = event.data;
+      if (!data || !data["x-tiktok-player"]) return;
+      if (data.type === "onStateChange" && data.value === 0) {
+        // vídeo terminou
+        advanceOnce();
+      } else if (data.type === "onPlayerError") {
+        // 3002 = AUTOPLAY_ERROR, 1001 = INVALID_VIDEO, 2001 = SERVER_ERROR
+        console.error("TikTok player error:", data.value);
+        advanceOnce();
+      }
+    };
+    window.addEventListener("message", handler);
+    return () => window.removeEventListener("message", handler);
+  }, [active, onEnded]);
+
+  return (
+    <div className={cls}>
+      {active && (
+        <iframe
+          src={`https://www.tiktok.com/player/v1/${item.image_url}?autoplay=1&muted=1&controls=0&loop=0&rel=0&description=0`}
+          title={item.title || "TikTok"}
+          allow="autoplay; encrypted-media; fullscreen"
+        />
+      )}
+    </div>
+  );
+}
+
 function VideoSlide({ item, active, cls, onEnded }) {
   const ref = useRef(null);
 
@@ -227,6 +271,10 @@ function Slide({ item, active, onVideoEnd }) {
 
   if (item.type === "video") {
     return <VideoSlide item={item} active={active} cls={cls} onEnded={onVideoEnd} />;
+  }
+
+  if (item.type === "tiktok") {
+    return <TikTokSlide item={item} active={active} cls={cls} onEnded={onVideoEnd} />;
   }
 
   if (item.type === "webpage") {

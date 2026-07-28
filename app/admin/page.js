@@ -20,7 +20,17 @@ const TYPE_LABELS = {
   image_text: "Imagem + texto",
   video: "Vídeo",
   webpage: "Página web",
+  tiktok: "TikTok",
 };
+
+// Aceita o link completo (https://www.tiktok.com/@user/video/123...)
+// ou o ID numérico direto; devolve só o ID, ou null se inválido.
+function extractTikTokId(input) {
+  const trimmed = (input || "").trim();
+  if (/^\d+$/.test(trimmed)) return trimmed;
+  const m = trimmed.match(/video\/(\d+)/);
+  return m ? m[1] : null;
+}
 
 function needsFile(type) {
   return ["image", "image_text", "video"].includes(type);
@@ -163,7 +173,7 @@ function Manager({ session }) {
       type: item.type,
       title: item.title || "",
       body: item.body || "",
-      url: item.type === "webpage" ? item.image_url || "" : "",
+      url: ["webpage", "tiktok"].includes(item.type) ? item.image_url || "" : "",
       duration_seconds: item.duration_seconds,
       start_date: toLocalInput(item.start_date),
       end_date: toLocalInput(item.end_date),
@@ -203,6 +213,15 @@ function Manager({ session }) {
       if (form.type === "webpage" && !form.url)
         throw new Error("Indica o URL da página.");
 
+      let tiktokId = null;
+      if (form.type === "tiktok") {
+        tiktokId = extractTikTokId(form.url);
+        if (!tiktokId)
+          throw new Error(
+            "Link do TikTok inválido — cola o link completo do vídeo (ex.: https://www.tiktok.com/@user/video/123...)."
+          );
+      }
+
       const record = {
         type: form.type,
         title: form.title || null,
@@ -214,6 +233,7 @@ function Manager({ session }) {
 
       if (needsFile(form.type) && file) record.image_url = await uploadFile();
       if (form.type === "webpage") record.image_url = form.url;
+      if (form.type === "tiktok") record.image_url = tiktokId;
       if (form.type === "text") record.image_url = null;
 
       if (editingId) {
@@ -288,13 +308,37 @@ function Manager({ session }) {
         </h2>
 
         <label>Tipo</label>
-        <select value={form.type} onChange={(e) => set("type", e.target.value)}>
+        <select
+          value={form.type}
+          onChange={(e) => {
+            const t = e.target.value;
+            // TikTok: duração é um teto de segurança — sugere 60s por defeito
+            setForm((f) => ({
+              ...f,
+              type: t,
+              duration_seconds: t === "tiktok" ? 60 : f.duration_seconds,
+            }));
+          }}
+        >
           <option value="text">Só texto</option>
           <option value="image">Só imagem</option>
           <option value="image_text">Imagem + texto</option>
           <option value="video">Vídeo</option>
           <option value="webpage">Página web (URL)</option>
+          <option value="tiktok">TikTok</option>
         </select>
+
+        {form.type === "tiktok" && (
+          <>
+            <label>Link do vídeo do TikTok</label>
+            <input
+              type="text"
+              value={form.url}
+              onChange={(e) => set("url", e.target.value)}
+              placeholder="https://www.tiktok.com/@user/video/123..."
+            />
+          </>
+        )}
 
         {needsFile(form.type) && (
           <>
@@ -344,7 +388,7 @@ function Manager({ session }) {
         <div className="row">
           <div>
             <label>
-              {form.type === "video"
+              {form.type === "video" || form.type === "tiktok"
                 ? "Duração máxima (s) — o slide avança quando o vídeo acabar"
                 : "Duração (segundos)"}
             </label>
@@ -394,6 +438,8 @@ function Manager({ session }) {
             <div className="thumb placeholder">🎬</div>
           ) : item.type === "webpage" ? (
             <div className="thumb placeholder">🌐</div>
+          ) : item.type === "tiktok" ? (
+            <div className="thumb placeholder">🎵</div>
           ) : item.image_url ? (
             <img className="thumb" src={item.image_url} alt="" />
           ) : (

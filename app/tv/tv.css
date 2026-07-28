@@ -75,6 +75,18 @@ html, body {
   object-fit: contain;
 }
 
+/* Template: TikTok Embed Player */
+.slide.tpl-tiktok {
+  background: #000;
+}
+.slide.tpl-tiktok iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #000;
+  pointer-events: none;
+}
+
 /* Template: página web (iframe) — ex.: ranking do jogo */
 .slide.tpl-webpage iframe {
   width: 100%;
