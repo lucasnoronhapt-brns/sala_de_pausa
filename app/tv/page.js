@@ -6,11 +6,12 @@ import "./tv.css";
 
 const POLL_INTERVAL_MS = 45_000;
 
-function TikTokSlide({ item, active, cls, onEnded }) {
+function TikTokSlide({ item, active, cycle, cls, onEnded }) {
   const firedRef = useRef(false);
 
-  // O iframe só é montado enquanto o slide está ativo: cada entrada
-  // recria o src e o autoplay dispara de novo.
+  // O iframe só é montado enquanto o slide está ativo, e a key={cycle}
+  // remonta-o a cada volta: o autoplay dispara de novo mesmo quando a
+  // playlist tem um único item.
   useEffect(() => {
     firedRef.current = false;
     if (!active) return;
@@ -35,12 +36,13 @@ function TikTokSlide({ item, active, cls, onEnded }) {
     };
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
-  }, [active, onEnded]);
+  }, [active, cycle, onEnded]);
 
   return (
     <div className={cls}>
       {active && (
         <iframe
+          key={cycle}
           src={`https://www.tiktok.com/player/v1/${item.image_url}?autoplay=1&muted=1&controls=0&loop=0&rel=0&description=0`}
           title={item.title || "TikTok"}
           allow="autoplay; encrypted-media; fullscreen"
@@ -50,10 +52,12 @@ function TikTokSlide({ item, active, cls, onEnded }) {
   );
 }
 
-function VideoSlide({ item, active, cls, onEnded }) {
+function VideoSlide({ item, active, cycle, cls, onEnded }) {
   const ref = useRef(null);
 
-  // Recomeça do zero quando o slide entra; pausa quando sai
+  // Recomeça do zero quando o slide entra; pausa quando sai.
+  // `cycle` cobre o caso da playlist com um único vídeo: cada volta
+  // reinicia a reprodução mesmo sem mudança de slide.
   useEffect(() => {
     const v = ref.current;
     if (!v) return;
@@ -63,7 +67,7 @@ function VideoSlide({ item, active, cls, onEnded }) {
     } else {
       v.pause();
     }
-  }, [active]);
+  }, [active, cycle]);
 
   return (
     <div className={cls}>
@@ -122,6 +126,9 @@ function isVisibleNow(item, now) {
 export default function TvPage() {
   const [items, setItems] = useState([]);
   const [current, setCurrent] = useState(0);
+  // Incrementa a cada avanço; força a remontagem do player TikTok
+  // mesmo quando a playlist só tem um item (senão o vídeo não repetia).
+  const [cycle, setCycle] = useState(0);
   const [rot, setRot] = useState("270");
   const [debugOn, setDebugOn] = useState(false);
   const [clock, setClock] = useState("");
@@ -208,14 +215,14 @@ export default function TvPage() {
 
     // Para vídeo, este timer é só um teto de segurança (se o vídeo
     // falhar ou encravar); normalmente o slide avança no onEnded.
-    const id = setTimeout(
-      () => setCurrent((c) => (c + 1) % items.length),
-      durationMs
-    );
+    const id = setTimeout(advance, durationMs);
     return () => clearTimeout(id);
-  }, [items, current]);
+  }, [items, current, cycle]);
 
-  const advance = () => setCurrent((c) => (c + 1) % (items.length || 1));
+  const advance = () => {
+    setCycle((n) => n + 1);
+    setCurrent((c) => (c + 1) % (items.length || 1));
+  };
 
   // Relógio (prova de vida)
   useEffect(() => {
@@ -249,6 +256,7 @@ export default function TvPage() {
             key={item.id}
             item={item}
             active={i === current % items.length}
+            cycle={cycle}
             onVideoEnd={advance}
           />
         ))
@@ -266,15 +274,19 @@ export default function TvPage() {
   );
 }
 
-function Slide({ item, active, onVideoEnd }) {
+function Slide({ item, active, cycle, onVideoEnd }) {
   const cls = `slide tpl-${item.type} ${active ? "active" : ""}`;
 
   if (item.type === "video") {
-    return <VideoSlide item={item} active={active} cls={cls} onEnded={onVideoEnd} />;
+    return (
+      <VideoSlide item={item} active={active} cycle={cycle} cls={cls} onEnded={onVideoEnd} />
+    );
   }
 
   if (item.type === "tiktok") {
-    return <TikTokSlide item={item} active={active} cls={cls} onEnded={onVideoEnd} />;
+    return (
+      <TikTokSlide item={item} active={active} cycle={cycle} cls={cls} onEnded={onVideoEnd} />
+    );
   }
 
   if (item.type === "webpage") {
