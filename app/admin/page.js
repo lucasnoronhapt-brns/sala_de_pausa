@@ -139,6 +139,8 @@ function Login() {
 // Gestor da playlist
 // ═══════════════════════════════════════════════════════════
 function Manager({ session }) {
+  const [me, setMe] = useState(null);
+  const [meLoaded, setMeLoaded] = useState(false);
   const [items, setItems] = useState([]);
   const [restaurants, setRestaurants] = useState([]);
   const [viewFilter, setViewFilter] = useState("");
@@ -169,9 +171,25 @@ function Manager({ session }) {
   }
 
   useEffect(() => {
+    // Que tipo de admin sou? (null = conta sem permissões,
+    // restaurant_slug null = super admin, senão admin do restaurante)
+    supabase
+      .from("admin_users")
+      .select("*")
+      .eq("email", session.user.email)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        // Tabela admin_users ainda não existe (SQL não corrido):
+        // funciona como antes, todos os logins são super admin
+        setMe(error ? { restaurant_slug: null } : data);
+        setMeLoaded(true);
+      });
     loadItems();
     loadRestaurants();
   }, []);
+
+  const isSuper = !!me && !me.restaurant_slug;
+  const myRest = me ? me.restaurant_slug : null;
 
   async function addRestaurant(e) {
     e.preventDefault();
@@ -291,7 +309,8 @@ function Manager({ session }) {
         type: form.type,
         title: form.title || null,
         body: form.body || null,
-        restaurant_slug: form.restaurant_slug || null,
+        // Admin de restaurante só cria itens do seu restaurante
+        restaurant_slug: isSuper ? form.restaurant_slug || null : myRest,
         duration_seconds: Number(form.duration_seconds) || 8,
         start_date: form.start_date ? new Date(form.start_date).toISOString() : null,
         end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
@@ -357,10 +376,28 @@ function Manager({ session }) {
     await loadItems();
   }
 
+  if (!meLoaded) return <div className="admin">A carregar…</div>;
+
+  if (!me)
+    return (
+      <div className="admin">
+        <h1>Sala de Pausa — Admin</h1>
+        <div className="msg error">
+          Esta conta ({session.user.email}) não tem permissões de gestão.
+        </div>
+        <button className="btn secondary" onClick={() => supabase.auth.signOut()}>
+          Sair
+        </button>
+      </div>
+    );
+
   return (
     <div className="admin">
       <div className="topbar">
-        <h1>Playlist da TV</h1>
+        <h1>
+          Playlist da TV
+          {!isSuper && ` — ${restaurantName(myRest)}`}
+        </h1>
         <button className="btn small secondary" onClick={() => supabase.auth.signOut()}>
           Sair
         </button>
@@ -373,18 +410,22 @@ function Manager({ session }) {
           {editingId ? "Editar item" : "Novo item"}
         </h2>
 
-        <label>Restaurante</label>
-        <select
-          value={form.restaurant_slug}
-          onChange={(e) => set("restaurant_slug", e.target.value)}
-        >
-          <option value="">Todos os restaurantes</option>
-          {restaurants.map((r) => (
-            <option key={r.slug} value={r.slug}>
-              {r.name}
-            </option>
-          ))}
-        </select>
+        {isSuper && (
+          <>
+            <label>Restaurante</label>
+            <select
+              value={form.restaurant_slug}
+              onChange={(e) => set("restaurant_slug", e.target.value)}
+            >
+              <option value="">Todos os restaurantes</option>
+              {restaurants.map((r) => (
+                <option key={r.slug} value={r.slug}>
+                  {r.name}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
 
         <label>Tipo</label>
         <select
@@ -511,7 +552,7 @@ function Manager({ session }) {
       </form>
 
       <h2>Itens ({items.length})</h2>
-      {restaurants.length > 0 && (
+      {isSuper && restaurants.length > 0 && (
         <select
           value={viewFilter}
           onChange={(e) => setViewFilter(e.target.value)}
@@ -528,11 +569,14 @@ function Manager({ session }) {
       )}
       {items
         .filter((item) =>
-          viewFilter === ""
-            ? true
-            : viewFilter === "__global__"
-              ? !item.restaurant_slug
-              : item.restaurant_slug === viewFilter
+          // Admin de restaurante só vê os itens do seu restaurante
+          !isSuper
+            ? item.restaurant_slug === myRest
+            : viewFilter === ""
+              ? true
+              : viewFilter === "__global__"
+                ? !item.restaurant_slug
+                : item.restaurant_slug === viewFilter
         )
         .map((item, idx) => (
         <div key={item.id} className={`card item ${item.active ? "" : "inactive"}`}>
@@ -593,6 +637,8 @@ function Manager({ session }) {
         <div className="card">A playlist está vazia — adiciona o primeiro item acima.</div>
       )}
 
+      {isSuper && (
+        <>
       <h2>Restaurantes ({restaurants.length})</h2>
       <form className="card" onSubmit={addRestaurant}>
         <label>Novo restaurante</label>
@@ -640,6 +686,8 @@ function Manager({ session }) {
           </div>
         </div>
       ))}
+        </>
+      )}
     </div>
   );
 }
