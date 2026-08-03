@@ -9,10 +9,21 @@ const EMPTY_FORM = {
   title: "",
   body: "",
   url: "",
+  restaurant_slug: "",
   duration_seconds: 8,
   start_date: "",
   end_date: "",
 };
+
+// "Restaurante São João" → "restaurante-sao-joao"
+function slugify(name) {
+  return name
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
 
 const TYPE_LABELS = {
   text: "Texto",
@@ -129,6 +140,9 @@ function Login() {
 // ═══════════════════════════════════════════════════════════
 function Manager({ session }) {
   const [items, setItems] = useState([]);
+  const [restaurants, setRestaurants] = useState([]);
+  const [viewFilter, setViewFilter] = useState("");
+  const [newRestName, setNewRestName] = useState("");
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [file, setFile] = useState(null);
@@ -145,9 +159,55 @@ function Manager({ session }) {
     else setItems(data);
   }
 
+  async function loadRestaurants() {
+    const { data, error } = await supabase
+      .from("restaurants")
+      .select("*")
+      .order("name");
+    if (!error && data) setRestaurants(data);
+  }
+
   useEffect(() => {
     loadItems();
+    loadRestaurants();
   }, []);
+
+  async function addRestaurant(e) {
+    e.preventDefault();
+    const name = newRestName.trim();
+    if (!name) return;
+    const slug = slugify(name);
+    if (!slug) {
+      setMsg({ type: "error", text: "Nome inválido." });
+      return;
+    }
+    const { error } = await supabase.from("restaurants").insert({ name, slug });
+    if (error) setMsg({ type: "error", text: "Erro ao criar restaurante: " + error.message });
+    else {
+      setNewRestName("");
+      setMsg({ type: "ok", text: `Restaurante criado. URL da TV: /tv/${slug}` });
+    }
+    await loadRestaurants();
+  }
+
+  async function removeRestaurant(rest) {
+    if (
+      !confirm(
+        `Apagar o restaurante "${rest.name}"? Os itens dele passam a aparecer em todos os restaurantes.`
+      )
+    )
+      return;
+    const { error } = await supabase.from("restaurants").delete().eq("id", rest.id);
+    if (error) setMsg({ type: "error", text: error.message });
+    await loadRestaurants();
+    await loadItems();
+  }
+
+  function restaurantName(slug) {
+    if (!slug) return "Todos";
+    const r = restaurants.find((x) => x.slug === slug);
+    return r ? r.name : slug;
+  }
 
   function set(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -174,6 +234,7 @@ function Manager({ session }) {
       title: item.title || "",
       body: item.body || "",
       url: ["webpage", "tiktok"].includes(item.type) ? item.image_url || "" : "",
+      restaurant_slug: item.restaurant_slug || "",
       duration_seconds: item.duration_seconds,
       start_date: toLocalInput(item.start_date),
       end_date: toLocalInput(item.end_date),
@@ -226,6 +287,7 @@ function Manager({ session }) {
         type: form.type,
         title: form.title || null,
         body: form.body || null,
+        restaurant_slug: form.restaurant_slug || null,
         duration_seconds: Number(form.duration_seconds) || 8,
         start_date: form.start_date ? new Date(form.start_date).toISOString() : null,
         end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
@@ -306,6 +368,19 @@ function Manager({ session }) {
         <h2 style={{ marginTop: 0 }}>
           {editingId ? "Editar item" : "Novo item"}
         </h2>
+
+        <label>Restaurante</label>
+        <select
+          value={form.restaurant_slug}
+          onChange={(e) => set("restaurant_slug", e.target.value)}
+        >
+          <option value="">Todos os restaurantes</option>
+          {restaurants.map((r) => (
+            <option key={r.slug} value={r.slug}>
+              {r.name}
+            </option>
+          ))}
+        </select>
 
         <label>Tipo</label>
         <select
@@ -432,7 +507,30 @@ function Manager({ session }) {
       </form>
 
       <h2>Itens ({items.length})</h2>
-      {items.map((item, idx) => (
+      {restaurants.length > 0 && (
+        <select
+          value={viewFilter}
+          onChange={(e) => setViewFilter(e.target.value)}
+          style={{ marginBottom: 10 }}
+        >
+          <option value="">Ver tudo</option>
+          <option value="__global__">Só itens de todos os restaurantes</option>
+          {restaurants.map((r) => (
+            <option key={r.slug} value={r.slug}>
+              Só: {r.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {items
+        .filter((item) =>
+          viewFilter === ""
+            ? true
+            : viewFilter === "__global__"
+              ? !item.restaurant_slug
+              : item.restaurant_slug === viewFilter
+        )
+        .map((item, idx) => (
         <div key={item.id} className={`card item ${item.active ? "" : "inactive"}`}>
           {item.type === "video" ? (
             <div className="thumb placeholder">🎬</div>
@@ -450,6 +548,8 @@ function Manager({ session }) {
               {item.title || item.body || (item.type === "webpage" ? item.image_url : "(sem título)")}
             </div>
             <div className="meta">
+              📍{restaurantName(item.restaurant_slug)}
+              {" · "}
               {TYPE_LABELS[item.type] || item.type}
               {" · "}
               {item.duration_seconds}s
@@ -488,6 +588,45 @@ function Manager({ session }) {
       {items.length === 0 && (
         <div className="card">A playlist está vazia — adiciona o primeiro item acima.</div>
       )}
+
+      <h2>Restaurantes ({restaurants.length})</h2>
+      <form className="card" onSubmit={addRestaurant}>
+        <label>Novo restaurante</label>
+        <div className="row">
+          <div>
+            <input
+              type="text"
+              value={newRestName}
+              onChange={(e) => setNewRestName(e.target.value)}
+              placeholder="Ex.: Gaia Jardim"
+            />
+          </div>
+          <div style={{ flex: "0 0 auto" }}>
+            <button className="btn" style={{ marginTop: 0 }}>
+              Criar
+            </button>
+          </div>
+        </div>
+        {newRestName.trim() && (
+          <div className="meta" style={{ fontSize: "0.8rem", color: "#666", marginTop: 6 }}>
+            URL da TV: /tv/{slugify(newRestName)}
+          </div>
+        )}
+      </form>
+      {restaurants.map((r) => (
+        <div key={r.id} className="card item">
+          <div className="thumb placeholder">📍</div>
+          <div className="info">
+            <div className="title">{r.name}</div>
+            <div className="meta">TV: https://sala-de-pausa.vercel.app/tv/{r.slug}</div>
+          </div>
+          <div className="actions">
+            <button className="btn small danger" onClick={() => removeRestaurant(r)}>
+              ✕
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
