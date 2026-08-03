@@ -129,18 +129,36 @@ export default function TvDisplay({ screenSlug = null }) {
   // Incrementa a cada avanço; força a remontagem do player TikTok
   // mesmo quando a playlist só tem um item (senão o vídeo não repetia).
   const [cycle, setCycle] = useState(0);
-  const [rot, setRot] = useState("270");
+  // /tv legado (sem restaurante) assume vertical; com restaurante,
+  // parte de horizontal até a BD dizer a orientação configurada
+  const [rot, setRot] = useState(screenSlug ? "0" : "270");
   const [debugOn, setDebugOn] = useState(false);
   const [clock, setClock] = useState("");
   const progressRef = useRef(null);
 
-  // Rotação e debug via URL (?rot=90|270|0, ?debug=1)
+  // Rotação: ?rot=90|270|0 na URL ganha sempre (útil para testes);
+  // sem ?rot, usa a orientação configurada do restaurante na BD
+  // (270 = vertical, 0 = horizontal). Debug via ?debug=1.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const r = params.get("rot");
-    if (["90", "270", "0"].includes(r)) setRot(r);
     setDebugOn(params.get("debug") === "1");
-  }, []);
+    if (["90", "270", "0"].includes(r)) {
+      setRot(r);
+      return;
+    }
+    if (supabase && screenSlug) {
+      supabase
+        .from("restaurants")
+        .select("rotation")
+        .eq("slug", screenSlug)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (data && [0, 90, 270].includes(data.rotation))
+            setRot(String(data.rotation));
+        });
+    }
+  }, [screenSlug]);
 
   // Polling à base de dados, com cache local como fallback
   useEffect(() => {

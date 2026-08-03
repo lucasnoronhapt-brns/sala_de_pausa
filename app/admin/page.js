@@ -143,6 +143,7 @@ function Manager({ session }) {
   const [restaurants, setRestaurants] = useState([]);
   const [viewFilter, setViewFilter] = useState("");
   const [newRestName, setNewRestName] = useState("");
+  const [newRestRot, setNewRestRot] = useState("0");
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
   const [file, setFile] = useState(null);
@@ -181,10 +182,13 @@ function Manager({ session }) {
       setMsg({ type: "error", text: "Nome inválido." });
       return;
     }
-    const { error } = await supabase.from("restaurants").insert({ name, slug });
+    const { error } = await supabase
+      .from("restaurants")
+      .insert({ name, slug, rotation: Number(newRestRot) });
     if (error) setMsg({ type: "error", text: "Erro ao criar restaurante: " + error.message });
     else {
       setNewRestName("");
+      setNewRestRot("0");
       setMsg({ type: "ok", text: `Restaurante criado. URL da TV: /tv/${slug}` });
     }
     await loadRestaurants();
@@ -601,6 +605,12 @@ function Manager({ session }) {
               placeholder="Ex.: Gaia Jardim"
             />
           </div>
+          <div>
+            <select value={newRestRot} onChange={(e) => setNewRestRot(e.target.value)}>
+              <option value="0">TV na horizontal</option>
+              <option value="270">TV na vertical</option>
+            </select>
+          </div>
           <div style={{ flex: "0 0 auto" }}>
             <button className="btn" style={{ marginTop: 0 }}>
               Criar
@@ -618,7 +628,10 @@ function Manager({ session }) {
           <div className="thumb placeholder">📍</div>
           <div className="info">
             <div className="title">{r.name}</div>
-            <div className="meta">TV: https://sala-de-pausa.vercel.app/tv/{r.slug}</div>
+            <div className="meta">
+              {r.rotation === 270 || r.rotation === 90 ? "Vertical" : "Horizontal"}
+              {" · "}TV: https://sala-de-pausa.vercel.app/tv/{r.slug}
+            </div>
           </div>
           <div className="actions">
             <button className="btn small danger" onClick={() => removeRestaurant(r)}>
