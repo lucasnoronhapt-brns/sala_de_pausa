@@ -148,7 +148,7 @@ function Manager({ session }) {
   const [newRestRot, setNewRestRot] = useState("0");
   const [form, setForm] = useState(EMPTY_FORM);
   const [editingId, setEditingId] = useState(null);
-  const [file, setFile] = useState(null);
+  const [files, setFiles] = useState([]);
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
@@ -235,9 +235,12 @@ function Manager({ session }) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  // Ao escolher um vídeo, lê a duração e preenche o campo automaticamente
-  function handleFileChange(f) {
-    setFile(f);
+  // Guarda os ficheiros escolhidos (imagens podem ser várias de uma vez);
+  // para vídeo, lê a duração e preenche o campo automaticamente
+  function handleFileChange(fileList) {
+    const arr = Array.from(fileList || []);
+    setFiles(arr);
+    const f = arr[0];
     if (f && f.type.startsWith("video/")) {
       const v = document.createElement("video");
       v.preload = "metadata";
@@ -261,7 +264,7 @@ function Manager({ session }) {
       start_date: toLocalInput(item.start_date),
       end_date: toLocalInput(item.end_date),
     });
-    setFile(null);
+    setFiles([]);
     if (fileRef.current) fileRef.current.value = "";
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
@@ -269,16 +272,16 @@ function Manager({ session }) {
   function cancelEdit() {
     setEditingId(null);
     setForm(EMPTY_FORM);
-    setFile(null);
+    setFiles([]);
     if (fileRef.current) fileRef.current.value = "";
   }
 
-  async function uploadFile() {
-    if (file.size > 50 * 1024 * 1024)
-      throw new Error("Ficheiro demasiado grande (máx. 50 MB no plano free).");
-    const ext = file.name.split(".").pop().toLowerCase();
+  async function uploadFile(f) {
+    if (f.size > 50 * 1024 * 1024)
+      throw new Error(`"${f.name}" é demasiado grande (máx. 50 MB no plano free).`);
+    const ext = f.name.split(".").pop().toLowerCase();
     const path = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
-    const { error } = await supabase.storage.from("media").upload(path, file);
+    const { error } = await supabase.storage.from("media").upload(path, f);
     if (error) throw new Error("Upload falhou: " + error.message);
     const { data } = supabase.storage.from("media").getPublicUrl(path);
     return data.publicUrl;
@@ -291,7 +294,7 @@ function Manager({ session }) {
     try {
       if (needsText(form.type) && !form.title && !form.body)
         throw new Error("Preenche pelo menos o título ou o texto.");
-      if (needsFile(form.type) && !file && !editingId)
+      if (needsFile(form.type) && files.length === 0 && !editingId)
         throw new Error(form.type === "video" ? "Escolhe um vídeo." : "Escolhe uma imagem.");
       if (form.type === "webpage" && !form.url)
         throw new Error("Indica o URL da página.");
@@ -316,7 +319,28 @@ function Manager({ session }) {
         end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
       };
 
-      if (needsFile(form.type) && file) record.image_url = await uploadFile();
+      // Várias imagens de uma vez: cada uma vira um item próprio,
+      // com a mesma duração, restaurante e datas do formulário
+      if (form.type === "image" && files.length > 1 && !editingId) {
+        const base =
+          items.length > 0 ? Math.max(...items.map((i) => i.order_index)) + 1 : 0;
+        const records = [];
+        for (let i = 0; i < files.length; i++) {
+          setMsg({ type: "ok", text: `A enviar imagem ${i + 1} de ${files.length}…` });
+          const url = await uploadFile(files[i]);
+          records.push({ ...record, image_url: url, order_index: base + i, active: true });
+        }
+        const { error } = await supabase.from("playlist_items").insert(records);
+        if (error) throw new Error(error.message);
+        setMsg({ type: "ok", text: `${files.length} imagens adicionadas à playlist.` });
+        cancelEdit();
+        await loadItems();
+        setBusy(false);
+        return;
+      }
+
+      if (needsFile(form.type) && files.length > 0)
+        record.image_url = await uploadFile(files[0]);
       if (form.type === "webpage") record.image_url = form.url;
       if (form.type === "tiktok") record.image_url = tiktokId;
       if (form.type === "text") record.image_url = null;
@@ -463,15 +487,25 @@ function Manager({ session }) {
         {needsFile(form.type) && (
           <>
             <label>
-              {form.type === "video" ? "Vídeo (mp4/webm, máx. 50 MB)" : "Imagem"}
+              {form.type === "video"
+                ? "Vídeo (mp4/webm, máx. 50 MB)"
+                : form.type === "image" && !editingId
+                  ? "Imagens (podes escolher várias de uma vez)"
+                  : "Imagem"}
               {editingId ? " (deixa vazio para manter o atual)" : ""}
             </label>
             <input
               type="file"
               accept={form.type === "video" ? "video/mp4,video/webm" : "image/*"}
+              multiple={form.type === "image" && !editingId}
               ref={fileRef}
-              onChange={(e) => handleFileChange(e.target.files[0] || null)}
+              onChange={(e) => handleFileChange(e.target.files)}
             />
+            {form.type === "image" && files.length > 1 && (
+              <div style={{ fontSize: "0.85rem", marginTop: 6, opacity: 0.8 }}>
+                {files.length} imagens selecionadas — cada uma vira um item na playlist.
+              </div>
+            )}
           </>
         )}
 
