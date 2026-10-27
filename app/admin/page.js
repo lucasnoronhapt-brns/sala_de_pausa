@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { DEFAULT_COUNTDOWN, buildCountdownUrl, countdownForItem } from "@/lib/countdown.mjs";
 import "./admin.css";
 
 const EMPTY_FORM = {
@@ -13,6 +14,9 @@ const EMPTY_FORM = {
   duration_seconds: 8,
   start_date: "",
   end_date: "",
+  countdown_date: DEFAULT_COUNTDOWN.date,
+  countdown_time: DEFAULT_COUNTDOWN.time,
+  countdown_zone: DEFAULT_COUNTDOWN.timeZone,
 };
 
 // "Restaurante São João" → "restaurante-sao-joao"
@@ -32,6 +36,7 @@ const TYPE_LABELS = {
   video: "Vídeo",
   webpage: "Página web",
   tiktok: "TikTok",
+  countdown: "Contagem regressiva",
 };
 
 // Aceita o link completo (https://www.tiktok.com/@user/video/123...)
@@ -47,7 +52,7 @@ function needsFile(type) {
   return ["image", "image_text", "video"].includes(type);
 }
 function needsText(type) {
-  return ["text", "image_text"].includes(type);
+  return ["text", "image_text", "countdown"].includes(type);
 }
 
 function toLocalInput(iso) {
@@ -253,16 +258,20 @@ function Manager({ session }) {
   }
 
   function startEdit(item) {
+    const countdown = countdownForItem(item);
     setEditingId(item.id);
     setForm({
-      type: item.type,
-      title: item.title || "",
-      body: item.body || "",
+      type: countdown ? "countdown" : item.type,
+      title: countdown ? countdown.title : item.title || "",
+      body: countdown ? countdown.message : item.body || "",
       url: ["webpage", "tiktok"].includes(item.type) ? item.image_url || "" : "",
       restaurant_slug: item.restaurant_slug || "",
       duration_seconds: item.duration_seconds,
       start_date: toLocalInput(item.start_date),
       end_date: toLocalInput(item.end_date),
+      countdown_date: countdown?.date ?? DEFAULT_COUNTDOWN.date,
+      countdown_time: countdown?.time ?? DEFAULT_COUNTDOWN.time,
+      countdown_zone: countdown?.timeZone ?? DEFAULT_COUNTDOWN.timeZone,
     });
     setFiles([]);
     if (fileRef.current) fileRef.current.value = "";
@@ -292,7 +301,7 @@ function Manager({ session }) {
     setBusy(true);
     setMsg(null);
     try {
-      if (needsText(form.type) && !form.title && !form.body)
+      if (needsText(form.type) && form.type !== "countdown" && !form.title && !form.body)
         throw new Error("Preenche pelo menos o título ou o texto.");
       if (needsFile(form.type) && files.length === 0 && !editingId)
         throw new Error(form.type === "video" ? "Escolhe um vídeo." : "Escolhe uma imagem.");
@@ -309,8 +318,8 @@ function Manager({ session }) {
       }
 
       const record = {
-        type: form.type,
-        title: form.title || null,
+        type: form.type === "countdown" ? "webpage" : form.type,
+        title: form.title || (form.type === "countdown" ? DEFAULT_COUNTDOWN.title : null),
         body: form.body || null,
         // Admin de restaurante só cria itens do seu restaurante
         restaurant_slug: isSuper ? form.restaurant_slug || null : myRest,
@@ -342,6 +351,13 @@ function Manager({ session }) {
       if (needsFile(form.type) && files.length > 0)
         record.image_url = await uploadFile(files[0]);
       if (form.type === "webpage") record.image_url = form.url;
+      if (form.type === "countdown") record.image_url = buildCountdownUrl({
+        date: form.countdown_date,
+        time: form.countdown_time,
+        timeZone: form.countdown_zone,
+        title: form.title || DEFAULT_COUNTDOWN.title,
+        message: form.body,
+      });
       if (form.type === "tiktok") record.image_url = tiktokId;
       if (form.type === "text") record.image_url = null;
 
@@ -398,6 +414,19 @@ function Manager({ session }) {
         .eq("id", other.id),
     ]);
     await loadItems();
+  }
+
+  let countdownPreview = null;
+  let countdownError = null;
+  if (form.type === "countdown") {
+    try {
+      countdownPreview = buildCountdownUrl({
+        date: form.countdown_date, time: form.countdown_time,
+        timeZone: form.countdown_zone, title: form.title, message: form.body,
+      });
+    } catch (err) {
+      countdownError = err.message;
+    }
   }
 
   if (!meLoaded) return <div className="admin">A carregar…</div>;
@@ -460,6 +489,7 @@ function Manager({ session }) {
             setForm((f) => ({
               ...f,
               type: t,
+              title: t === "countdown" && !f.title ? DEFAULT_COUNTDOWN.title : f.title,
               duration_seconds: t === "tiktok" ? 60 : f.duration_seconds,
             }));
           }}
@@ -470,7 +500,57 @@ function Manager({ session }) {
           <option value="video">Vídeo</option>
           <option value="webpage">Página web (URL)</option>
           <option value="tiktok">TikTok</option>
+          <option value="countdown">Contagem regressiva (plaquinhas)</option>
         </select>
+
+        {form.type === "countdown" && (
+          <div className="countdown-settings">
+            <div className="row">
+              <div>
+                <label htmlFor="countdown-date">Último dia de trabalho</label>
+                <input
+                  id="countdown-date"
+                  type="date"
+                  min="1000-01-01"
+                  max="9999-12-31"
+                  required
+                  value={form.countdown_date}
+                  onChange={(e) => set("countdown_date", e.target.value)}
+                />
+              </div>
+              <div>
+                <label htmlFor="countdown-time">Hora de saída (opcional)</label>
+                <input
+                  id="countdown-time"
+                  type="time"
+                  value={form.countdown_time}
+                  onChange={(e) => set("countdown_time", e.target.value)}
+                />
+              </div>
+            </div>
+            <label htmlFor="countdown-zone">Fuso horário da hora de saída</label>
+            <select
+              id="countdown-zone"
+              value={form.countdown_zone}
+              onChange={(e) => set("countdown_zone", e.target.value)}
+            >
+              <option value="Europe/London">Reino Unido — Londres</option>
+              <option value="Europe/Lisbon">Portugal continental e Madeira — Lisboa</option>
+              <option value="Atlantic/Azores">Portugal — Açores</option>
+              <option value="America/Sao_Paulo">Brasil — Brasília</option>
+              {!["Europe/London", "Europe/Lisbon", "Atlantic/Azores", "America/Sao_Paulo"].includes(form.countdown_zone) && (
+                <option value={form.countdown_zone}>{form.countdown_zone}</option>
+              )}
+            </select>
+            <p className="form-help">
+              Mostra o total de horas, minutos e segundos que faltam, com plaquinhas animadas.
+              Na TV só aparecem os números, sem título, data, legenda ou mensagem.
+              Indica uma hora de saída provisória e atualiza-a quando receberes o horário.
+              Sem hora definida, mostra apenas “--:--:--”.
+            </p>
+            {countdownError && <p className="form-help countdown-error" role="alert">{countdownError}</p>}
+          </div>
+        )}
 
         {form.type === "tiktok" && (
           <>
@@ -523,19 +603,21 @@ function Manager({ session }) {
 
         {needsText(form.type) && (
           <>
-            <label>Título</label>
+            <label>{form.type === "countdown" ? "Nome no painel (não aparece na TV)" : "Título"}</label>
             <input
               type="text"
               value={form.title}
               onChange={(e) => set("title", e.target.value)}
               placeholder="Ex.: Reunião de equipa"
             />
+            {form.type !== "countdown" && <>
             <label>Texto</label>
             <textarea
               value={form.body}
               onChange={(e) => set("body", e.target.value)}
               placeholder="Ex.: Sexta-feira às 15h00, na sala de formação."
             />
+            </>}
           </>
         )}
 
@@ -575,7 +657,13 @@ function Manager({ session }) {
           </div>
         </div>
 
-        <button className="btn" disabled={busy}>
+        {countdownPreview && (
+          <a className="countdown-preview" href={countdownPreview} target="_blank" rel="noopener noreferrer">
+            Pré-visualizar cronómetro
+          </a>
+        )}
+
+        <button className="btn" disabled={busy || (form.type === "countdown" && !!countdownError)}>
           {busy ? "A guardar…" : editingId ? "Guardar alterações" : "Adicionar"}
         </button>{" "}
         {editingId && (
@@ -614,7 +702,9 @@ function Manager({ session }) {
         )
         .map((item, idx) => (
         <div key={item.id} className={`card item ${item.active ? "" : "inactive"}`}>
-          {item.type === "video" ? (
+          {countdownForItem(item) ? (
+            <div className="thumb placeholder">⏳</div>
+          ) : item.type === "video" ? (
             <div className="thumb placeholder">🎬</div>
           ) : item.type === "webpage" ? (
             <div className="thumb placeholder">🌐</div>
@@ -632,7 +722,7 @@ function Manager({ session }) {
             <div className="meta">
               📍{restaurantName(item.restaurant_slug)}
               {" · "}
-              {TYPE_LABELS[item.type] || item.type}
+              {countdownForItem(item) ? TYPE_LABELS.countdown : TYPE_LABELS[item.type] || item.type}
               {" · "}
               {item.duration_seconds}s
               {item.start_date && <> · de {fmtDate(item.start_date)}</>}

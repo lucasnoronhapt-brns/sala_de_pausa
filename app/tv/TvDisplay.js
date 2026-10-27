@@ -2,6 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import { countdownForItem } from "@/lib/countdown.mjs";
+import { prepareOfflineScreen } from "@/lib/offline-screen.mjs";
+import { refreshPlaylist, readRotation, saveRotation, browserStorage } from "@/lib/tv-cache.mjs";
 import "./tv.css";
 
 const POLL_INTERVAL_MS = 45_000;
@@ -82,7 +85,6 @@ function VideoSlide({ item, active, cycle, cls, onEnded }) {
     </div>
   );
 }
-const CACHE_KEY_BASE = "signage_playlist_v1";
 
 // Fundos atribuídos automaticamente aos slides de texto,
 // de forma estável (o mesmo item mantém sempre o mesmo fundo).
@@ -116,13 +118,6 @@ function bodyClass(t) {
   return "";
 }
 
-// Filtro de agendamento: item só aparece dentro da janela de datas
-function isVisibleNow(item, now) {
-  if (item.start_date && new Date(item.start_date) > now) return false;
-  if (item.end_date && new Date(item.end_date) < now) return false;
-  return true;
-}
-
 export default function TvDisplay({ screenSlug = null }) {
   const [items, setItems] = useState([]);
   const [current, setCurrent] = useState(0);
@@ -147,6 +142,8 @@ export default function TvDisplay({ screenSlug = null }) {
       setRot(r);
       return;
     }
+    const cachedRotation = readRotation(browserStorage(), screenSlug);
+    if (cachedRotation !== null) setRot(cachedRotation);
     if (supabase && screenSlug) {
       supabase
         .from("restaurants")
@@ -154,64 +151,61 @@ export default function TvDisplay({ screenSlug = null }) {
         .eq("slug", screenSlug)
         .maybeSingle()
         .then(({ data }) => {
-          if (data && [0, 90, 270].includes(data.rotation))
+          if (data && [0, 90, 270].includes(data.rotation)) {
             setRot(String(data.rotation));
-        });
+            saveRotation(browserStorage(), screenSlug, data.rotation);
+          }
+        }).catch(() => {});
     }
   }, [screenSlug]);
 
   // Polling à base de dados, com cache local como fallback
   useEffect(() => {
     let cancelled = false;
+    let fetching = false;
 
-    async function load() {
-      let all = null;
-      if (supabase) {
-        let query = supabase
-          .from("playlist_items")
-          .select("*")
-          .eq("active", true)
-          .order("order_index", { ascending: true });
-        // Com slug: itens deste restaurante + itens globais (sem restaurante)
-        if (screenSlug)
-          query = query.or(
-            `restaurant_slug.is.null,restaurant_slug.eq.${screenSlug}`
-          );
-        const { data, error } = await query;
-        if (!error && data) all = data;
-      }
-
-      const cacheKey = `${CACHE_KEY_BASE}:${screenSlug || "all"}`;
-      if (all) {
-        try {
-          localStorage.setItem(cacheKey, JSON.stringify(all));
-        } catch {}
-      } else {
-        // Sem rede ou sem config: usa a última playlist conhecida
-        try {
-          const cached = localStorage.getItem(cacheKey);
-          if (cached) all = JSON.parse(cached);
-        } catch {}
-      }
-
-      if (!all || cancelled) return;
-
-      const now = new Date();
-      const visible = all.filter((it) => isVisibleNow(it, now));
-
-      // Só re-renderiza se houver mesmo diferença (evita piscar)
-      setItems((prev) =>
-        JSON.stringify(prev) === JSON.stringify(visible) ? prev : visible
-      );
+    async function fetchPlaylist() {
+      let query = supabase
+        .from("playlist_items")
+        .select("*")
+        .eq("active", true)
+        .order("order_index", { ascending: true });
+      // Com slug: itens deste restaurante + itens globais (sem restaurante)
+      if (screenSlug)
+        query = query.or(
+          `restaurant_slug.is.null,restaurant_slug.eq.${screenSlug}`
+        );
+      const { data, error } = await query;
+      if (error) throw error;
+      return data;
     }
 
+    async function load() {
+      if (cancelled) return;
+      const fetcher = supabase && navigator.onLine && !fetching ? fetchPlaylist : null;
+      if (fetcher) fetching = true;
+      try {
+        await refreshPlaylist({
+          storage: browserStorage(), screenSlug, fetchPlaylist: fetcher,
+          onPlaylist: (visible) => {
+            if (!cancelled) setItems((prev) =>
+              JSON.stringify(prev) === JSON.stringify(visible) ? prev : visible);
+          },
+        });
+      } finally { if (fetcher) fetching = false; }
+    }
+
+    const reconnect = () => { load(); prepareOfflineScreen(); };
     load();
+    prepareOfflineScreen();
+    window.addEventListener("online", reconnect);
     const id = setInterval(load, POLL_INTERVAL_MS);
     return () => {
       cancelled = true;
       clearInterval(id);
+      window.removeEventListener("online", reconnect);
     };
-  }, []);
+  }, [screenSlug]);
 
   // Se a playlist encolher, garante que o índice continua válido
   useEffect(() => {
@@ -264,6 +258,9 @@ export default function TvDisplay({ screenSlug = null }) {
     return () => clearInterval(id);
   }, []);
 
+  const activeItem = items.length ? items[current % items.length] : null;
+  const countdownActive = activeItem && !!countdownForItem(activeItem);
+
   return (
     <div className={`rotate-wrapper rot-${rot}`}>
       {items.length === 0 ? (
@@ -287,9 +284,9 @@ export default function TvDisplay({ screenSlug = null }) {
         ))
       )}
 
-      <div className="clock">{clock}</div>
-      <div className="progress" ref={progressRef}></div>
-      {debugOn && (
+      {!countdownActive && <div className="clock">{clock}</div>}
+      {!countdownActive && <div className="progress" ref={progressRef}></div>}
+      {debugOn && !countdownActive && (
         <div className="debug">
           slide {items.length ? (current % items.length) + 1 : 0}/{items.length} | rot=
           {rot} | poll={POLL_INTERVAL_MS / 1000}s | ecrã={screenSlug || "todos"}

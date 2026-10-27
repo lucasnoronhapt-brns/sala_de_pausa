@@ -35,6 +35,8 @@
 .admin select,
 .admin input[type="number"],
 .admin input[type="datetime-local"],
+.admin input[type="date"],
+.admin input[type="time"],
 .admin input[type="email"],
 .admin input[type="password"] {
   width: 100%;
@@ -46,6 +48,29 @@
   background: #fff;
 }
 .admin textarea { min-height: 80px; resize: vertical; }
+
+.countdown-settings {
+  margin-top: 14px;
+  padding: 4px 12px 12px;
+  border-left: 3px solid #b94732;
+  background: #b947320a;
+}
+.form-help { margin-top: 10px; font-size: 0.85rem; line-height: 1.5; opacity: 0.8; }
+.countdown-error { color: #b42318; opacity: 1; }
+.countdown-preview {
+  display: block;
+  width: fit-content;
+  margin-top: 16px;
+  color: #2563eb;
+  font-size: 0.95rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.countdown-preview:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; }
+
+@media (max-width: 420px) {
+  .countdown-settings .row { flex-direction: column; }
+}
 
 .row {
   display: flex;
